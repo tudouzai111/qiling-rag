@@ -102,9 +102,9 @@ class ImportConfig:
 _config: Optional[ImportConfig] = None
 
 
-def get_config() -> ImportConfig:
+def get_config() -> Optional[ImportConfig]:
     """获取配置单例"""
     global _config
     if _config is None:
-        _config: ImportConfig = ImportConfig.from_env()
+        _config = ImportConfig.from_env()
     return _config

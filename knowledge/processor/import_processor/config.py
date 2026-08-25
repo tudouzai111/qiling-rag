@@ -34,7 +34,7 @@ class ImportConfig:
         default_factory=lambda: os.getenv("DEEPSEEK_API_BASE", "")
     )
     deepseek_api_key: str = field(
-        default_factory=lambda: os.getenv("DEEPSEEK_API_KEY", "")
+        default_factory=lambda: os.getenv("ALIYUN_API_KEY", "")
     )
     vl_model: str = field(
         default_factory=lambda: os.getenv("VL_MODEL", "")

@@ -1,11 +1,13 @@
 import base64
 import re
+import time
 from collections import deque
 from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
 from typing import List, Tuple, Set, Optional, Dict, Deque
 
+from minio import Minio
 from openai import OpenAI
 
 from knowledge.processor.import_processor.base import BaseNode, setup_logging
@@ -79,6 +81,37 @@ class _MdFileHandler:
         img_dir_obj = md_path_obj.parent / 'images'
 
         return md_content, md_path_obj, img_dir_obj
+
+    def backup(self, md_path_obj: Path, new_md_content: str) -> str:
+        """
+        备份原始 Markdown 文件，生成带 _new 后缀的新文件。
+
+        用于测试或预览场景：将处理后的 Markdown 内容写入到与源文件同目录的备份文件中，
+        保留原始文件不变。
+
+        Args:
+            md_path_obj (Path): 原始 Markdown 文件的 Path 对象。
+            new_md_content (str): 要写入备份文件的新 Markdown 内容。
+
+        Returns:
+            str: 备份文件的绝对路径（字符串形式）。
+
+        """
+
+        # 设定备份的md文件名 xxx.md 为 xxx_new.md
+        # with_name: 只修改路径中的“文件名”部分，保留前面的“目录路径”不变，然后返回一个新的 Path 对象。
+        new_file_path = md_path_obj.with_name(f'{md_path_obj.stem}_new{md_path_obj.suffix}')
+
+        # 创建新md文件并写入内容
+        try:
+            with open(new_file_path, 'w', encoding='utf-8') as f:
+                f.write(new_md_content)
+            self.logger.info(f'文件已备份至：{new_file_path}')
+        except IOError as e:
+            self.logger.error(f'写入新文件失败 {new_file_path}：{e}')
+            raise FileProcessingError(f'文件备份写入失败：{e}', node_name='me_img_node')
+
+        return str(new_file_path)
 
 
 class _ImgScanner:
@@ -206,7 +239,7 @@ class _ImgScanner:
         """
         for i in range(md_idx - 1, -1, -1):
             # 匹配句首如果是1-6个#加一个或多个空白字符则为标题
-            if re.match(r'^#{1, 6}\s+', md_lines[i]):
+            if re.match(r'^#{1,6}\s+', md_lines[i]):
                 return md_lines[i], i
 
         return '', -1
@@ -294,9 +327,9 @@ class _VLMSummarizer:
     根据每个图片信息以及上下文信息，生成对应图片的摘要信息
     """
 
-    def __init__(self, logger: Logger, requests_per_minute: int):
+    def __init__(self, logger: Logger, max_requests: int):
         self.logger = logger
-        self.requests_per_minute = requests_per_minute
+        self.max_requests = max_requests
 
     def summary_all(self, document_name: str, img_info_list: List[ImageInfo], vl_model: str) -> Dict[str, str]:
         """
@@ -312,7 +345,6 @@ class _VLMSummarizer:
         """
 
         summaries = {}
-        request_timestamps: Deque[float] = deque()
         # 获取VLM客户端
         try:
             vlm_client = AIClients.get_aliyun()
@@ -322,8 +354,11 @@ class _VLMSummarizer:
             return summaries
 
         # 调用VLM为每一张图片生成摘要
+        #
+        request_timestamps: Deque[float] = deque()
         for img_info in img_info_list:
-            self._enforce_rate_limit(request_timestamps, self.requests_per_minute)
+            # 滑动窗口算法限流
+            self._enforce_rate_limit(request_timestamps, self.max_requests)
             summaries[img_info.name] = self._summary_one(document_name, img_info, vlm_client, vl_model)
         self.logger.info(f'生成{len(summaries)}图片摘要')
 
@@ -402,6 +437,51 @@ class _VLMSummarizer:
             self.logger.error(f'图片摘要生成失败 {img_info.path}: {e}')
             return '暂无图片描述'
 
+    def _enforce_rate_limit(self, request_timestamps: Deque[float], max_requests: int, window: int = 60):
+        """
+        滑动窗口限流器（Sliding Window Rate Limiter）
+
+        基于双端队列实现滑动窗口算法，控制单位时间内的请求频率。
+        当请求超过限制时，会阻塞等待直到最老的请求滑出窗口。
+
+        Args:
+            request_timestamps (Deque[float]): 请求时间戳队列，存储最近请求的时间戳（秒级浮点数）。
+                要求按时间顺序排列，最老的请求在队列头部（left）。
+            max_requests (int): 窗口内允许的最大请求数。若 <= 0 则直接放行。
+            window (int, optional): 滑动窗口的时间长度，单位秒。默认为 60 秒。
+
+        Returns:
+            None: 该方法无返回值。超限时会阻塞当前线程。
+
+        """
+        # 如果窗口内允许的最大请求数 <= 0 直接放行
+        if max_requests <= 0:
+            return
+
+        # 获取当前时间
+        now = time.time()
+
+        # 清除所有已完成并且时间也满足window的请求
+        while request_timestamps and now - request_timestamps[0] >= window:
+            request_timestamps.popleft()
+
+        # 如果队列已经满了
+        if len(request_timestamps) >= max_requests:
+            # 那就阻塞等待
+            sleep_time = window - (now - request_timestamps[0])
+            if sleep_time > 0:
+                self.logger.info(f'达到限流器速率限制（每{window}秒{max_requests}次），暂停{sleep_time:.2f}秒')
+                time.sleep(sleep_time)
+
+            # 阻塞结束后获取新时间
+            now = time.time()
+            # 清除所有过期的请求
+            while request_timestamps and now - request_timestamps[0] >= window:
+                request_timestamps.popleft()
+
+        # 当前请求时间入队
+        request_timestamps.append(now)
+
 
 class _ImageUploader:
     """
@@ -412,12 +492,101 @@ class _ImageUploader:
     def __init__(self, logger: Logger):
         self.logger = logger
 
+    def upload_and_replace(self, object_dir_name: str, md_content: str, img_info_list: List[ImageInfo],
+                           summaries: Dict[str, str], minio_url: str, minio_bucket_name: str) -> str:
+        """
+        上传图片到MinIO并更新md中的图片地址以及摘要
+
+        Args:
+            object_dir_name: minio对象存储目录名称，用于构建MinIO中的存储路径（如文档名）
+            md_content: 原始Markdown文件内容
+            img_info_list: 图片信息列表，包含每张图片的本地路径、名称和上下文信息
+            summaries: 图片摘要字典，key为图片名称，value为VLM生成的标题/描述
+            minio_url: MinIO服务地址，用于拼接完整的图片访问URL
+            minio_bucket_name: MinIO存储桶名称，指定图片上传的目标桶
+
+        Returns:
+            str: 更新后的Markdown内容字符串，图片地址已替换为MinIO URL，并插入了摘要信息
+
+        """
+
+        # 上传图片到MinIO
+        remote_urls = self._upload_all(object_dir_name, img_info_list, minio_url, minio_bucket_name)
+
+        # 更新
+        md_content = self._updata_md_content(md_content, summaries, remote_urls)
+
+        return md_content
+
+    def _upload_all(self, object_dir_name: str, img_info_list: List[ImageInfo], minio_url: str,
+                    minio_bucket_name: str) -> Dict[str, str]:
+
+        remote_urls = {}  # key: 图片的名字  value: 图片的远程url
+
+        # 获取MinIO客户端
+        try:
+            minio_client: Minio = StorageClients().get_minio_client()
+        except Exception as e:
+            for img_info in img_info_list:
+                remote_urls[img_info.name] = img_info.path
+            return remote_urls
+
+        # 遍历上传图片
+        for img_info in img_info_list:
+            object_name = f'{object_dir_name}/{img_info.name}'
+            try:
+                minio_client.fput_object(minio_bucket_name, object_name, img_info.path)
+                self.logger.info(f'上传图片到MinIO成功：{img_info.name}')
+                # 图片路径为  http://localhost:9000/桶名/对象名
+                remote_urls[img_info.name] = f'{minio_url}/{minio_bucket_name}/{object_name}'
+            except Exception as e:
+                self.logger.error(f'上传图片到MinIO失败：{img_info.name}')
+                remote_urls[img_info.name] = img_info.path
+
+        self.logger.info(f'获取到远程的图片地址：{len(remote_urls)}个')
+        return remote_urls
+
+    def _updata_md_content(self, md_content: str, summaries: Dict[str, str], remote_urls: Dict[str, str]) -> str:
+        """
+        更新Markdown中的图片描述和图片URL为MinIO远程地址
+
+        Args:
+            md_content: 原始Markdown文件内容
+            summaries: 图片摘要字典，key为图片名称，value为VLM生成的摘要
+            remote_urls: 远程URL字典，key为图片名称，value为MinIO中的访问URL
+
+        Returns:
+            str: 更新后的Markdown内容，图片路径已替换为MinIO URL，并包含摘要描述
+        """
+
+        # 用正则找图片：![摘要](远程图片URL)
+        # 捕获组：group(0) 所有匹配的内容
+        # group(1) 第一个匹配的内容，也就是摘要
+        # group(2) 第二个匹配的内容，也就是URL
+        pattern = re.compile(r'!\[(.*?)\]\((.*?)\)')
+
+        def replacer(match: re.Match) -> str:
+            """
+                ![摘要](MinIO远程图片地址)
+            """
+
+            for img_name, img_summary in summaries.items():
+                # md中的图片URL
+                origin_img_path = match.group(2)
+                # 如果summaries中的img_name对应匹配到的图片
+                img_name_in_md = Path(origin_img_path).name
+                if img_name == img_name_in_md:
+                    return f'![{img_summary}]({remote_urls[img_name]})'
+            return match.group(0)
+        return pattern.sub(replacer, md_content)
+
+
 class MDToImgNode(BaseNode):
     def __init__(self):
         super().__init__()
         self._md_file_handler = _MdFileHandler(self.logger, self.name)
         self._img_scanner = _ImgScanner(self.logger)
-        self._vlm_summarizer = _VLMSummarizer(self.logger, self.config.requests_per_minute)
+        self._vlm_summarizer = _VLMSummarizer(self.logger, self.config.max_requests)
         self._image_uploader = _ImageUploader(self.logger)
 
     name = 'md_to_img_node'
@@ -453,13 +622,16 @@ class MDToImgNode(BaseNode):
         )
 
         # 根据图片生成摘要
+        # 图片摘要字典，key为图片名称，value为摘要
         # path的几个参数
         # print(p.name)  # 输出: 风景照.jpg  (包含后缀)
         # print(p.stem)  # 输出: 风景照     (不包含后缀)
         # print(p.suffix)  # 输出: .jpg       (单独拿后缀)
+        self.log_step('step3', '根据图片路径和上下文信息通过大模型生成图片摘要')
         summaries: Dict[str, str] = self._vlm_summarizer.summary_all(md_path_obj.stem, img_info_list, config.vl_model)
 
-        # 将图片上传到MinIO
+        # 将图片上传到MinIO并更新md中的图片地址以及摘要
+        self.log_step('step4', '将图片上传到MinIO并更新md中的图片地址以及摘要')
         new_md_content = self._image_uploader.upload_and_replace(
             md_path_obj.stem,
             md_content,
@@ -468,6 +640,10 @@ class MDToImgNode(BaseNode):
             config.get_minio_base_url(),
             config.minio_bucket
         )
+
+        # 备份md文件用于测试
+        self.log_step('step5', '将md文件备份一份用于测试')
+        self._md_file_handler.backup(md_path_obj, new_md_content)
 
         return state
 

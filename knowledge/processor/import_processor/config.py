@@ -83,7 +83,7 @@ class ImportConfig:
     embedding_batch_size: int = 8
 
     # ==================== 速率限制 ====================
-    requests_per_minute: int = 15  # 图片总结 API 速率限制
+    max_requests: int = 15  # 图片总结 API 速率限制
 
     # 加引号是为了推迟返回类型注解的求值，避免在类定义尚未完成时引用类名导致 NameError。
     @classmethod

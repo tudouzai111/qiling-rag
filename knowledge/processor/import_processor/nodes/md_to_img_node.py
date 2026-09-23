@@ -59,7 +59,9 @@ class _MdFileHandler:
 
         Returns:
             Tuple[str, Path, Path]
+
             md_content, md_path_obj, img_dir_obj
+
             md文件内容
             md文件路径
             图片目录路径
@@ -194,7 +196,9 @@ class _ImgScanner:
         # ![](images\xxx.jpg "图片描述")
         # . 任意字符
         # * 任意数量，0次或无数次
-        # ? 0次或1次非贪婪匹配
+        # ? 单独使用时，表示前面的字符出现 0 次或 1 次
+        # 但 *? 是 非贪婪匹配，表示前面的字符出现 0 次或多次，但尽可能少匹配
+        # 所以 .*? 应理解为“任意字符，0 次或多次，非贪婪
         # escape (a.png) 转义特殊字符
         # 例如：a.png 转义为 a\.png
         pattern = re.compile(r'!\[.*?\]\(.*?' + re.escape(img_name) + r'.*?\)')
@@ -644,6 +648,8 @@ class MDToImgNode(BaseNode):
         # 备份md文件用于测试
         self.log_step('step5', '将md文件备份一份用于测试')
         self._md_file_handler.backup(md_path_obj, new_md_content)
+
+        state['md_content'] = new_md_content
 
         return state
 

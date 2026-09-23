@@ -106,7 +106,7 @@ class PdfToMdNode(BaseNode):
             str(import_file_path_obj),
             '-o',
             str(file_dir_obj),
-            '--source'
+            '--source '
             'local',
         ]
 

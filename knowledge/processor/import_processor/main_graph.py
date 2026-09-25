@@ -4,6 +4,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from knowledge.processor.import_processor.base import setup_logging
+from knowledge.processor.import_processor.nodes.document_split_node import DocumentSplitNode
 from knowledge.processor.import_processor.nodes.entry_node import EntryNode
 from knowledge.processor.import_processor.nodes.md_to_img_node import MDToImgNode
 from knowledge.processor.import_processor.nodes.pdf_to_md_node import PdfToMdNode
@@ -17,7 +18,7 @@ def import_router(state: ImportGraphState):
     if state.get('is_pdf_read_enabled'):
         return 'pdf_to_md_node'
     if state.get('is_md_read_enabled'):
-        return 'md_to_md_node'
+        return 'md_to_img_node'
     return '__end__'
 
 
@@ -32,7 +33,8 @@ def import_graph() -> CompiledStateGraph:
     node_name_obj = {
         'entry_node': EntryNode(),
         'pdf_to_md_node': PdfToMdNode(),
-        'md_to_img_node': MDToImgNode()
+        'md_to_img_node': MDToImgNode(),
+        'document_split_node': DocumentSplitNode(),
     }
 
     # 添加节点
@@ -48,7 +50,8 @@ def import_graph() -> CompiledStateGraph:
 
     # 添加业务边
     work_flow.add_edge('pdf_to_md_node', 'md_to_img_node')
-    work_flow.add_edge('md_to_img_node', '__end__')
+    work_flow.add_edge('md_to_img_node', 'document_split_node')
+    work_flow.add_edge('document_split_node', '__end__')
 
     # 编译图
     compiled_state_graph = work_flow.compile()

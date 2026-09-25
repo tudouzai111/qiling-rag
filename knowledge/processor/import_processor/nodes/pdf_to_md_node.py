@@ -106,8 +106,7 @@ class PdfToMdNode(BaseNode):
             str(import_file_path_obj),
             '-o',
             str(file_dir_obj),
-            '--source '
-            'local',
+            '--source', 'local',
         ]
 
         # 执行cmd命令并获取所有日志

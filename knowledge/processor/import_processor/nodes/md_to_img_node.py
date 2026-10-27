@@ -351,7 +351,7 @@ class _VLMSummarizer:
         summaries = {}
         # 获取VLM客户端
         try:
-            vlm_client = AIClients.get_aliyun()
+            vlm_client = AIClients.get_openai_vlm_client()
         except Exception as e:
             for img_info in img_info_list:
                 summaries[img_info.name] = '暂无摘要'

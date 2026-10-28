@@ -330,7 +330,7 @@ class ItemNameRecognitionNode(BaseNode):
             index_name="dense_vector_index",
             index_type="AUTOINDEX",
             metric_type="COSINE",
-            # Milvus 计算出来的稠密向量已经进行了归一化处理，所以度量类型选择COSINE或者IP效果一样的
+            # Milvus 计算出来的稠密向量已经进行了归一化处理，COSINE和IP对稠密向量的排序结果是等价的，但显式使用COSINE更安全，换了不归一化的模型也不用改参数
         )
         # 稀疏向量
         index_params.add_index(
@@ -375,6 +375,7 @@ if __name__ == "__main__":
     setup_logging()
 
     chunk_json_path = r"D:\Project\PycharmProjects\shopkeeper_brain\knowledge\processor\import_processor\temp_dir\chunks.json"
+    chunk_item_name_json_path = r"D:\Project\PycharmProjects\shopkeeper_brain\knowledge\processor\import_processor\temp_dir\chunks_item_name.json"
     with open(chunk_json_path, "r", encoding="utf-8") as f:
         chunk_content = json.load(f)
 
@@ -388,33 +389,36 @@ if __name__ == "__main__":
         print(f"chunks数量：{len(final_state.get('chunks', []))}")
         print(f"首个chunk是否含item_name：{'item_name' in final_state['chunks'][0]}")
 
-        # 验证：把刚插进去的行查出来
-        milvus_client = StorageClients.get_milvus_client()
-        # 先加载集合到内存（query/search 的前置条件）
-        milvus_client.load_collection(collection_name="kb_item_names")
-        # insert 到可查询有短暂延迟，等一下保证刚插的行可见
-        import time
+        # # 验证：把刚插进去的行查出来
+        # milvus_client = StorageClients.get_milvus_client()
+        # # 先加载集合到内存（query/search 的前置条件）
+        # milvus_client.load_collection(collection_name="kb_item_names")
+        # # insert 到可查询有短暂延迟，等一下保证刚插的行可见
+        # import time
+        #
+        # time.sleep(3)
+        #
+        # # 用标量过滤查（注意：Milvus filter 里字符串值必须用【单引号】，双引号会匹配不到）
+        # filtered_rows = milvus_client.query(
+        #     collection_name="kb_item_names",
+        #     filter="file_title == 'H3C 无线网关手册'",
+        #     output_fields=["file_title", "item_name", "pk"],
+        #     limit=100,
+        # )
+        # print(f"filter 查到 {len(filtered_rows)} 行：")
+        # for row in filtered_rows:
+        #     print(repr(row))
+        #
+        # # 对照：不加过滤的全表，用于确认总数
+        # all_rows = milvus_client.query(
+        #     collection_name="kb_item_names",
+        #     filter="",
+        #     output_fields=["file_title", "item_name", "pk"],
+        #     limit=100,
+        # )
+        # print(f"全表共 {len(all_rows)} 行（重复插入会累积，用于观察幂等问题）：")
+        # for row in all_rows:
+        #     print(repr(row))
 
-        time.sleep(3)
-
-        # 用标量过滤查（注意：Milvus filter 里字符串值必须用【单引号】，双引号会匹配不到）
-        filtered_rows = milvus_client.query(
-            collection_name="kb_item_names",
-            filter="file_title == 'H3C 无线网关手册'",
-            output_fields=["file_title", "item_name", "pk"],
-            limit=100,
-        )
-        print(f"filter 查到 {len(filtered_rows)} 行：")
-        for row in filtered_rows:
-            print(repr(row))
-
-        # 对照：不加过滤的全表，用于确认总数
-        all_rows = milvus_client.query(
-            collection_name="kb_item_names",
-            filter="",
-            output_fields=["file_title", "item_name", "pk"],
-            limit=100,
-        )
-        print(f"全表共 {len(all_rows)} 行（重复插入会累积，用于观察幂等问题）：")
-        for row in all_rows:
-            print(repr(row))
+    with open(chunk_item_name_json_path, "w", encoding="utf-8") as f:
+        json.dump(chunk_content, f, ensure_ascii=False, indent=4)

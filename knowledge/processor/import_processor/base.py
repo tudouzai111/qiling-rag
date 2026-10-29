@@ -4,12 +4,13 @@
 定义统一的节点接口规范，提供通用功能
 """
 
-from abc import ABC, abstractmethod
-from typing import TypeVar, Optional
 import logging
+from abc import ABC, abstractmethod
+from typing import TypeVar
 
 from knowledge.processor.import_processor.config import ImportConfig, get_config
 from knowledge.processor.import_processor.exceptions import ImportProcessError
+
 # from knowledge.utils.task_util import add_running_task, add_done_task
 
 T = TypeVar("T")  # 泛型状态类型
@@ -37,7 +38,7 @@ class BaseNode(ABC):
 
     name: str = "base_node"  # 节点名称，子类应覆盖
 
-    def __init__(self, config: Optional[ImportConfig] = None):
+    def __init__(self, config: ImportConfig | None = None):
         """
         初始化节点
 
@@ -76,11 +77,7 @@ class BaseNode(ABC):
             return result
         except Exception as e:
             self.logger.error(f"{self.name} 执行失败: {e}")
-            raise ImportProcessError(
-                message=str(e),
-                node_name=self.name,
-                cause=e
-            )
+            raise ImportProcessError(message=str(e), node_name=self.name, cause=e)
 
     @abstractmethod
     def process(self, state: T) -> T:
@@ -95,7 +92,6 @@ class BaseNode(ABC):
         Returns:
             更新后的状态字典
         """
-        pass
 
     def log_step(self, step_name: str, message: str = ""):
         """
@@ -121,6 +117,6 @@ def setup_logging(level: int = logging.INFO):
     """
     logging.basicConfig(
         level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )

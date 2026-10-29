@@ -86,7 +86,8 @@ class EmbeddingChunksNode(BaseNode):
             chunk["sparse_vector"] = self._extract_sparse_vector(sparse_csr, idx)
         return batch_chunks
 
-    def _extract_sparse_vector(self, sparse_csr, idx: int):
+    @staticmethod
+    def _extract_sparse_vector(sparse_csr, idx: int):
 
         # 从行索引中获取当前chunk的起始索引和结束索引
         start_index = sparse_csr.indptr[idx]

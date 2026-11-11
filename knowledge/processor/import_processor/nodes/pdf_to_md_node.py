@@ -3,10 +3,15 @@ import subprocess
 import time
 from pathlib import Path
 
+import psutil
+
 from knowledge.processor.import_processor.base import BaseNode, setup_logging
 from knowledge.processor.import_processor.exceptions import FileProcessingError, ValidationError, \
     PdfConversionError
 from knowledge.processor.import_processor.state import ImportGraphState
+
+# mineru本地API服务的进程特征（cli以 `python -m mineru.cli.fast_api` 拉起子进程）
+_MINERU_SERVER_CMD_MARKER = "mineru.cli.fast_api"
 
 
 class PdfToMdNode(BaseNode):
@@ -37,6 +42,36 @@ class PdfToMdNode(BaseNode):
         state['md_path'] = md_path
 
         return state
+
+    def _cleanup_orphan_mineru_servers(self):
+        """
+        清理遗留的mineru本地API服务进程，防止内存被孤儿进程逐渐吃光
+
+        背景：mineru CLI每次解析都会拉起一个 `python -m mineru.cli.fast_api` 子进程，
+        正常路径会随CLI退出而关停，但失败/异常路径可能遗留孤儿进程（父进程已死、
+        子进程仍持有数GB内存）。本机内存紧张时，遗留进程会导致下一次解析
+        在分配内存时直接OOM（numpy Unable to allocate）。
+        仅清理"父进程已退出"的孤儿，不会误杀并行导入时正在使用的服务。
+        """
+        killed = []
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'ppid']):
+            try:
+                info = proc.info
+                # 按参数列表精确匹配：服务进程的cmdline形如
+                # [python.exe, '-m', 'mineru.cli.fast_api', '--port', ...]
+                # 命令行文本里"提到"该字符串的无关进程不会被匹配
+                if _MINERU_SERVER_CMD_MARKER not in (info['cmdline'] or []):
+                    continue
+                # 父进程（mineru CLI）仍存活 → 是并行导入正在使用的服务，跳过
+                if info['ppid'] and psutil.pid_exists(info['ppid']):
+                    continue
+                psutil.Process(info['pid']).kill()
+                killed.append(info['pid'])
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+
+        if killed:
+            self.logger.warning(f'已清理遗留的MinerU本地服务进程：{killed}')
 
     def _validate_state_inputs_path(self, state: ImportGraphState) -> tuple[Path, Path]:
         """
@@ -96,6 +131,9 @@ class PdfToMdNode(BaseNode):
             非0: 解析失败
         """
 
+        # 先清理上次可能遗留的孤儿服务进程，释放内存
+        self._cleanup_orphan_mineru_servers()
+
         # mineru解析命令：mineru -p input_path -o output_dir --source=local
 
         # 子进程执行cmd命令
@@ -108,6 +146,9 @@ class PdfToMdNode(BaseNode):
             str(file_dir_obj),
             '--source', 'local',
         ]
+        # 可选：低显存机器通过 MINERU_BACKEND 切换解析后端（如 vlm-auto-engine / pipeline）
+        if self.config.mineru_backend:
+            cmd += ['-b', self.config.mineru_backend]
 
         # 执行cmd命令并获取所有日志
         start_time = time.time()
@@ -129,6 +170,9 @@ class PdfToMdNode(BaseNode):
         processed_result = proc.wait()
         end_time = time.time()
 
+        # 无论成功失败，清理本次可能遗留的孤儿服务进程
+        self._cleanup_orphan_mineru_servers()
+
         if processed_result == 0:
             self.logger.info(f'MinerU解析PDF成功，耗时：{end_time - start_time:.2f}秒')
         else:
@@ -140,10 +184,12 @@ class PdfToMdNode(BaseNode):
         """
         获取转换结果路径
 
-        MinerU 输出目录结构:
+        MinerU 输出目录结构（二级子目录名取决于解析后端，不写死）:
         file_dir_path/
           └── 文件名/
-               └── hybrid_auto/
+               ├── hybrid_auto/          （默认后端）
+               ├── vlm_auto_engine/      （vlm-auto-engine 后端）
+               └── pipeline/             （pipeline 后端）
                     ├── 文件名.md
                     └── images/
 
@@ -154,11 +200,27 @@ class PdfToMdNode(BaseNode):
         Returns:
             str: 解析后的markdown文件路径
 
+        Raises:
+            PdfConversionError: 未找到MinerU输出的markdown文件
         """
 
         file_name = import_file_path_obj.stem
+        file_root = file_dir_obj / file_name
 
-        return str(file_dir_obj / file_name / 'hybrid_auto' / f'{file_name}.md')
+        # 在所有后端子目录中查找markdown产物
+        candidates = sorted(file_root.glob(f"*/{file_name}.md"))
+
+        # 多个命中时优先默认后端 hybrid_auto
+        for candidate in candidates:
+            if candidate.parent.name == "hybrid_auto":
+                return str(candidate)
+
+        if candidates:
+            return str(candidates[0])
+
+        raise PdfConversionError(
+            message=f"未找到MinerU输出的markdown文件：{file_root}", node_name=self.name
+        )
 
 
 # 测试

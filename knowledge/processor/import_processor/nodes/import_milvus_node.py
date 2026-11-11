@@ -46,7 +46,7 @@ class _MilvusSchemaBuilder:
         schema = milvus_client.create_schema(enable_dynamic_field=True)
         # 添加主键字段的约束
         schema.add_field(
-            field_name="pk",
+            field_name="chunk_id",
             datatype=DataType.INT64,
             is_primary=True,
             auto_id=True,

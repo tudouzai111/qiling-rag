@@ -1,12 +1,11 @@
-from typing import  List
 from pymilvus.model.hybrid import BGEM3EmbeddingFunction
 
 
-def generate_bge_m3_hybrid_vectors(model: BGEM3EmbeddingFunction, embedding_documents: List[str]):
+def generate_bge_m3_hybrid_vectors(model: BGEM3EmbeddingFunction, embedding_documents: list[str]):
     """
     为文本生成混合向量嵌入（稠密 + 稀疏）
     Args:
-        embedding_model: BGE-M3嵌入模型
+        model: BGE-M3嵌入模型
         embedding_documents: 要生成嵌入的文本列表
     Returns:
         {"dense": [...], "sparse": [...]}

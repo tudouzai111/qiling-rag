@@ -24,6 +24,11 @@ class ImportConfig:
     item_name_chunk_k: int = 3  # 商品名识别时使用的切片数量
     item_name_chunk_size: int = 2500  # 商品名识别时使用的切片内容长度
 
+    # MinerU解析后端：留空用默认(hybrid-auto)；低显存可设为 vlm-auto-engine 或 pipeline
+    mineru_backend: str = field(
+        default_factory=lambda: os.getenv("MINERU_BACKEND", "")
+    )
+
     # default_factory：默认值工厂函数，用于创建可变类型的默认值
     image_extensions: Set[str] = field(
         default_factory=lambda: {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}

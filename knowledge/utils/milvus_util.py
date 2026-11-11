@@ -1,10 +1,12 @@
 import logging
 from logging import INFO
+from typing import Any
 
 from pymilvus import AnnSearchRequest, MilvusClient, WeightedRanker
 
 logging.basicConfig(level=INFO)
 logger = logging.getLogger(__name__)
+
 
 def create_hybrid_search_requests(
     dense_vector,
@@ -12,6 +14,7 @@ def create_hybrid_search_requests(
     dense_params=None,
     sparse_params=None,
     expr=None,
+    expr_params=None,
     limit=5,
 ):
     """
@@ -37,6 +40,7 @@ def create_hybrid_search_requests(
         anns_field="dense_vector",  # Collection 中的稠密向量字段
         param=dense_params,
         expr=expr,  # 过滤表达式（可选）
+        expr_params=expr_params,
         limit=limit,
     )
 
@@ -46,6 +50,7 @@ def create_hybrid_search_requests(
         anns_field="sparse_vector",  # Collection 中的稀疏向量字段
         param=sparse_params,
         expr=expr,
+        expr_params=expr_params,
         limit=limit,
     )
 
@@ -60,8 +65,8 @@ def execute_hybrid_search_query(
     norm_score=True,
     limit=5,
     output_fields=None,
-    search_params=None
-):
+    search_params=None,
+) -> list:
     """
     执行混合检索
 
@@ -117,11 +122,21 @@ def execute_hybrid_search_query(
             ranker=rerank,  # 融合排序器
             limit=limit,
             output_fields=output_fields,
-            search_requests=search_params
+            search_requests=search_params,
         )
 
         total_hits = sum(len(hits) for hits in results) if results else 0
-        logger.info(f"Milvus混合搜索完成，共处理 {len(results) if results else 0} 个查询，总计找到 {total_hits} 个结果")
+        logger.info(
+            f"Milvus混合搜索完成，共处理 {len(results) if results else 0} 个查询，总计找到 {total_hits} 个结果"
+        )
         return results
     except Exception as e:
-        raise RuntimeError(f"执行Milvus混合搜索失败(collection={collection_name}): {e}") from e
+        raise RuntimeError(
+            f"执行Milvus混合搜索失败(collection={collection_name}): {e}"
+        ) from e
+
+
+def item_name_filter(item_names: list[str]) -> tuple[str, dict[str, Any]]:
+    expr = "item_name in {item_names}"
+    expr_params = {"item_names": item_names}
+    return expr, expr_params

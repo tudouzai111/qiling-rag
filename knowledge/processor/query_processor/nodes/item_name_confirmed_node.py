@@ -346,7 +346,8 @@ class ItemNameConfirmedNode(BaseNode):
 
         # 决策
         self._decide(confirmed, options, state, rewritten_query, item_names)
-        return llm_result
+
+        return state
 
     @staticmethod
     def _decide(
@@ -370,7 +371,7 @@ class ItemNameConfirmedNode(BaseNode):
 
         """
         if confirmed:
-            state["item_names"] = item_names
+            state["item_names"] = confirmed  # 对齐后的商品名
             state["rewritten_query"] = rewritten_query
         elif options:
             state["answer"] = (

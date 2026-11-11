@@ -11,10 +11,6 @@ from knowledge.processor.query_processor.base import BaseNode
 from knowledge.processor.query_processor.config import get_config
 from knowledge.processor.query_processor.state import QueryGraphState
 from knowledge.prompts.query_prompt import ITEM_NAME_USER_EXTRACT_TEMPLATE
-from knowledge.utils.bge_m3_embedding_util import (
-    generate_hybrid_embeddings,
-    get_beg_m3_embedding_model,
-)
 from knowledge.utils.client.ai_clients import AIClients
 from knowledge.utils.client.storage_clients import StorageClients
 from knowledge.utils.embedding_util import generate_bge_m3_hybrid_vectors

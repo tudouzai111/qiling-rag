@@ -99,6 +99,9 @@ class QueryConfig:
     )
 
     # ==================== MCP 配置 ====================
+    aliyun_api_key: str = field(
+        default_factory=lambda: os.getenv("ALIYUN_API_KEY", "")
+    )
     mcp_dashscope_base_url: str = field(
         default_factory=lambda: os.getenv("MCP_DASHSCOPE_BASE_URL", "")
     )

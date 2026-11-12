@@ -1,3 +1,4 @@
+import math
 from typing import Any
 
 from knowledge.processor.query_processor.base import BaseNode, T
@@ -8,6 +9,11 @@ from knowledge.utils.client.ai_clients import AIClients
 class RerankerNode(BaseNode):
     name = "reranker_node"
 
+    @staticmethod
+    def _sigmoid(score: float) -> float:
+        """归一化TODO"""
+        return 1.0 / (1.0 + math.exp(-score))
+
     def process(self, state: QueryGraphState) -> QueryGraphState:
         # 获取用户的问题
         user_query = state.get("rewritten_query") or state.get("original_query")
@@ -17,12 +23,20 @@ class RerankerNode(BaseNode):
 
         # 利用Reranker精排
         # 为什么不把网络检索也加到rrf中？
-        # 因为网络检索没有存储在向量数据库
+        # 因为rrf是把不同检索方式检索同一个向量数据库，而网络检索是在网络检索，就算放到rrf里也只能单路排序
         refine_docs: list[dict[str, Any]] = self._refine_rank(
             user_query, reranker_outputs
         )
 
-        print(refine_docs)
+        # 动态top_k：
+        # top_k过大：LLM上下文过长，可能会截取无关上下文
+        # top_k过小：LLM检索上下文信息不全面
+        reranked_docs = self._cliff_cutoff(
+            refine_docs, self.config.rerank_min_top_k, self.config.rerank_max_top_k
+        )
+        state["reranked_docs"] = reranked_docs
+
+        return state
 
     def _collect_rerank_inputs(self, state: QueryGraphState) -> list[dict[str, Any]]:
         """获取两路检索结果"""
@@ -109,12 +123,13 @@ class RerankerNode(BaseNode):
         query_doc_pairs = [(user_query, d.get("content", "")) for d in reranker_outputs]
 
         try:
-            # 计算
+            # 计算：BGE-Reranker模型计算出来的得分是没有大小限制的
             reranker_scores = reranker_client.compute_score(
                 sentence_pairs=query_doc_pairs
             )
             doc_score = [
-                {**d, "score": float(s)}
+                # 对分数做归一化处理
+                {**d, "score": self._sigmoid(float(s))}
                 for d, s in zip(reranker_outputs, reranker_scores)
             ]
             # 排序
@@ -123,6 +138,65 @@ class RerankerNode(BaseNode):
         except Exception as e:
             self.logger.error(f"获取BGE-Reranker重排序模型计算失败：{e}")
             return [{**d, "score": None} for d in reranker_outputs]
+
+    def _cliff_cutoff(
+        self,
+        refine_docs: list[dict[str, Any]],
+        rerank_min_top_k: int,
+        rerank_max_top_k: int,
+    ) -> list[dict[str, Any]]:
+        """
+        动态top_k机制截取文档个数：自动决定保留多少篇文档送给 LLM 生成答案，而不是用一个固定的 top_k 一刀切。
+        由于没有对分数做归一化，所以需要判断断崖来选择截取文档数
+
+        Args:
+            refine_docs: 精排后的文档
+            rerank_min_top_k: 最少返回文档数
+            rerank_max_top_k: 最多返回文档数
+
+        Returns:
+
+        """
+        upper_bound = min(rerank_max_top_k, len(refine_docs))
+        lower_bound = min(rerank_min_top_k, upper_bound)
+        cutoff_idx = upper_bound
+        max_gap = 0
+        for i in range(lower_bound - 1, upper_bound - 1):
+            current_doc_score = refine_docs[i].get('score')
+            next_doc_score = refine_docs[i + 1].get('score')
+            if not current_doc_score or not next_doc_score:
+                continue
+
+            abs_gap = current_doc_score - next_doc_score
+            need_cutoff = False
+            # 绝对阈值：分数量级适中时，识别明显的断崖，无法解决高分区误截，低分区误截
+            if abs_gap >= self.config.rerank_gap_abs:
+                need_cutoff = True
+            # 相对阈值：判断断崖的严重程度，分子分母都很小会误截TODO
+            elif abs(current_doc_score) > 1.0:
+                rel_gap = abs_gap / (abs(current_doc_score) + 1e-6)
+                if rel_gap >= self.config.rerank_gap_ratio:
+                    need_cutoff = True
+
+            if need_cutoff and abs_gap > max_gap:
+                max_gap = abs_gap
+                cutoff_idx = i + 1
+                self.logger.info(f"位置{cutoff_idx}发生了断崖")
+
+        cutoff_docs = refine_docs[:cutoff_idx]
+
+        # 绝对分数底线过滤
+        rerank_min_score = getattr(self.config, 'rerank_min_score', None)
+        if rerank_min_score is not None:
+            filtered_docs = [d for d in cutoff_docs if (d.get("score") or 0) >= rerank_min_score]
+            if len(filtered_docs) < lower_bound:
+                cutoff_docs = refine_docs[:lower_bound]
+            else:
+                cutoff_docs = filtered_docs
+
+        return cutoff_docs
+
+
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ from langgraph.graph.state import CompiledStateGraph
 from dotenv import load_dotenv
 from knowledge.processor.query_processor.state import QueryGraphState
 from knowledge.processor.query_processor.nodes.item_name_confirmed_node import ItemNameConfirmedNode
-from knowledge.processor.query_processor.nodes.hybrid_vector_search_node import HybridVectorSearch
+from knowledge.processor.query_processor.nodes.hybrid_vector_search_node import HybridVectorSearchNode
 from knowledge.processor.query_processor.nodes.hyde_vector_search_node import HyDeVectorSearchNode
 from knowledge.processor.query_processor.nodes.web_mcp_search_node import WebMcpSearchNode
 from knowledge.processor.query_processor.nodes.rrf_merge_node import RrfMergeNode
@@ -82,7 +82,7 @@ def create_query_graph() -> CompiledStateGraph:
     nodes = {
         "item_name_confirmed_node": ItemNameConfirmedNode(),
         "multi_search": lambda x: x,  # 虚拟节点
-        "hybrid_vector_search_node": HybridVectorSearch(),
+        "hybrid_vector_search_node": HybridVectorSearchNode(),
         "hyde_vector_search_node": HyDeVectorSearchNode(),
         "web_mcp_search_node": WebMcpSearchNode(),
         "join": lambda x: {},  # 多路搜索汇合（虚节点）

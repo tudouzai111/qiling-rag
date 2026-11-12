@@ -30,7 +30,6 @@ class RrfMergeNode(BaseNode):
         )
 
         # RRF融合得到的是 (chunk对象, 分数) 列表：分数只服务于排序，排完序就完成使命了。
-        # 这里像老师版一样只把chunk对象存入state——下游reranker拿到纯dict列表，
         # 可以直接 for chunk in state['rrf_chunks']: chunk.get('content')
         state['rrf_chunks'] = [chunk for chunk, _score in merged_rrf_results]
 

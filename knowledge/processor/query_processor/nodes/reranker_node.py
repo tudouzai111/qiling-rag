@@ -113,10 +113,13 @@ class RerankerNode(BaseNode):
             reranker_scores = reranker_client.compute_score(
                 sentence_pairs=query_doc_pairs
             )
-            return [
+            doc_score = [
                 {**d, "score": float(s)}
                 for d, s in zip(reranker_outputs, reranker_scores)
             ]
+            # 排序
+            sorted_doc_score = sorted(doc_score, key=lambda x: x["score"], reverse=True)
+            return sorted_doc_score
         except Exception as e:
             self.logger.error(f"获取BGE-Reranker重排序模型计算失败：{e}")
             return [{**d, "score": None} for d in reranker_outputs]

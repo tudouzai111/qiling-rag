@@ -90,7 +90,7 @@ def create_query_graph() -> CompiledStateGraph:
     # 2. 实例化节点
     nodes = {
         "item_name_confirmed_node": ItemNameConfirmedNode(),
-        "multi_search": lambda x: x,  # 虚拟节点
+        "multi_search": lambda x: {},  # 虚拟节点
         "hybrid_vector_search_node": HybridVectorSearchNode(),
         "hyde_vector_search_node": HyDeVectorSearchNode(),
         "web_mcp_search_node": WebMcpSearchNode(),

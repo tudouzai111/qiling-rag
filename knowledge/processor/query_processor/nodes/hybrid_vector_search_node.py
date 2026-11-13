@@ -16,7 +16,7 @@ from knowledge.utils.milvus_util import (
 class HybridVectorSearchNode(BaseNode):
     name = "hybrid_vector_search_node"
 
-    def process(self, state: QueryGraphState) -> QueryGraphState:
+    def process(self, state: QueryGraphState) -> dict:
         # 参数校验
         rewritten_query, item_names = self._validate_state(state)
 
@@ -25,14 +25,14 @@ class HybridVectorSearchNode(BaseNode):
             bge_m3_client = AIClients.get_bge_m3_client()
         except ConnectionError as e:
             self.logger.error(f"BGE-M3嵌入模型获取失败：{e}")
-            return state
+            return {}
 
         # 获取Milvus客户端
         try:
             milvus_client = StorageClients.get_milvus_client()
         except ConnectionError as e:
             self.logger.error(f"Milvus客户端获取失败：{e}")
-            return state
+            return {}
 
         # 嵌入、检索查询问题
         try:
@@ -41,7 +41,7 @@ class HybridVectorSearchNode(BaseNode):
             )
         except Exception as e:
             self.logger.error(f"用户问题{rewritten_query}嵌入获取失败：{e}")
-            return state
+            return {}
 
         # 混合向量检索
         try:
@@ -64,13 +64,12 @@ class HybridVectorSearchNode(BaseNode):
                 output_fields=["chunk_id", "content", "item_name", "title"],
             )
             if not hybrid_search_response or not hybrid_search_response[0]:
-                return state
+                return {}
 
-            state["embedding_chunks"] = hybrid_search_response[0]
-            return state
+            return {"embedding_chunks": hybrid_search_response[0]}
         except Exception as e:
             self.logger.error(f"用户问题{rewritten_query}混合向量检索失败：{e}")
-            return state
+            return {}
 
     def _validate_state(self, state: QueryGraphState) -> tuple[str, list[str]]:
         # 用户的问题(LLM重写后的)

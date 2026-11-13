@@ -17,28 +17,28 @@ from knowledge.utils.milvus_util import (
 class HyDeVectorSearchNode(BaseNode):
     name = "hyde_vector_search_node"
 
-    def process(self, state: QueryGraphState) -> QueryGraphState:
+    def process(self, state: QueryGraphState) -> dict:
         # 参数校验
         rewritten_query, item_names = self._validate_state(state)
 
         # 利用LLM生成原始问题对应的假设性答案（解决跨域不对称）
         hy_document = self._generate_hy_document(rewritten_query, item_names)
         if hy_document is None:
-            return state
+            return {}
 
         # 获取嵌入模型客户端
         try:
             bge_m3_client = AIClients.get_bge_m3_client()
         except ConnectionError as e:
             self.logger.error(f"BGE-M3嵌入模型获取失败：{e}")
-            return state
+            return {}
 
         # 获取Milvus客户端
         try:
             milvus_client = StorageClients.get_milvus_client()
         except ConnectionError as e:
             self.logger.error(f"Milvus客户端获取失败：{e}")
-            return state
+            return {}
 
         # 嵌入假设性文档
         try:
@@ -47,7 +47,7 @@ class HyDeVectorSearchNode(BaseNode):
             )
         except Exception as e:
             self.logger.error(f"假设性文档{hy_document}嵌入失败：{e}")
-            return state
+            return {}
 
             # 混合向量检索
         try:
@@ -70,15 +70,14 @@ class HyDeVectorSearchNode(BaseNode):
                 output_fields=["chunk_id", "content", "item_name", "title"],
             )
             if not hybrid_search_response or not hybrid_search_response[0]:
-                return state
+                return {}
 
-            state["hyde_embedding_chunks"] = hybrid_search_response[0]
-            return state
+            return {"hyde_embedding_chunks": hybrid_search_response[0]}
         except Exception as e:
             self.logger.error(
                 f"原始问题{rewritten_query}对应的假设性文档{hy_document}混合向量检索失败：{e}"
             )
-            return state
+            return {}
 
     def _validate_state(self, state: QueryGraphState) -> tuple[str, list[str]]:
         # 用户的问题(LLM重写后的)

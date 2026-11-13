@@ -55,15 +55,18 @@ class _ItemNameExtractor:
             query=original_query,
         )
 
-        # 调用LLM
-        llm_response = llm_client.invoke(
-            [
-                SystemMessage(content=item_name_system_prompt),
-                HumanMessage(content=item_name_user_prompt),
-            ]
-        )
-        llm_response_content = llm_response.content
-        if not llm_response_content:
+        try:
+            # 调用LLM
+            llm_response = llm_client.invoke(
+                [
+                    SystemMessage(content=item_name_system_prompt),
+                    HumanMessage(content=item_name_user_prompt),
+                ]
+            )
+            llm_response_content = llm_response.content
+            if not llm_response_content:
+                return llm_result
+        except ConnectionError as e:
             return llm_result
 
         # 清洗和解析
@@ -108,7 +111,7 @@ class _ItemNameExtractor:
 
             raw_rewritten_query = llm_content_obj.get("rewritten_query")
             if not isinstance(raw_rewritten_query, str):
-                rewritten_query = []
+                rewritten_query = ''
             else:
                 rewritten_query = raw_rewritten_query.strip()
 
@@ -356,7 +359,10 @@ class ItemNameConfirmedNode(BaseNode):
         self._decide(confirmed, options, state, rewritten_query, item_names)
 
         # 更新内存state中的history历史上下文
-        state['history'] = formatted_history
+        state["history"] = [
+            {"role": h.get("role", ""), "text": h.get("text", "")}
+            for h in history_context
+        ]
 
         return state
 

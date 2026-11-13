@@ -122,7 +122,7 @@ class AnswerOutputNode(BaseNode):
                     metadata_content.append(template.format(field_value))
 
             # 获取得分
-            soc_score = context.get("score", float(0))
+            soc_score = context.get("score")
             if soc_score is not None:
                 metadata_content.append(f"[score={float(soc_score):.6f}]")
 
@@ -130,7 +130,7 @@ class AnswerOutputNode(BaseNode):
             formatted_line = " ".join(metadata_content) + "\n" + content
 
             # 计算行与行之间的字符数(\n\n)
-            sep_chars = 2 if formatted_line else 0
+            sep_chars = 2 if formatted_lines else 0
             total_length = sep_chars + len(formatted_line)
 
             # 计算总长度
@@ -147,6 +147,7 @@ class AnswerOutputNode(BaseNode):
             llm_client = AIClients.get_openai_llm_client(response_format=False)
         except ConnectionError as e:
             self.logger.error(f"LLM客户端获取失败：{e}")
+            state["answer"] = "LLM客户端获取失败"
             return
 
         if state.get("is_stream"):
@@ -247,13 +248,13 @@ class AnswerOutputNode(BaseNode):
 
             formatted_line = f"{role_map[role]}: {text}"
             # 计算分割符长度
-            seperator_usage = 1 if formatted_line else 0
+            seperator_usage = 1 if formatted_lines else 0
             # 计算总长度
             total_usage = seperator_usage + len(formatted_line)
             if used_chars + total_usage > usage_chars:
                 break
 
             formatted_lines.append(formatted_line)
-            usage_chars += total_usage
+            used_chars += total_usage
 
         return '\n'.join(formatted_lines)

@@ -122,7 +122,8 @@ class RerankerNode(BaseNode):
             reranker_client = AIClients.get_bge_reranker_client()
         except ConnectionError as e:
             self.logger.error(f"获取BGE-Reranker重排序模型失败：{e}")
-            return []
+            # 保留原上下文
+            return [{**d, "score": None} for d in reranker_outputs]
 
         # 构建Q->D pairs
         query_doc_pairs = [(user_query, d.get("content", "")) for d in reranker_outputs]
@@ -169,7 +170,7 @@ class RerankerNode(BaseNode):
         for i in range(0, upper_bound - 1):
             current_doc_score = refine_docs[i].get('score')
             next_doc_score = refine_docs[i + 1].get('score')
-            if not current_doc_score or not next_doc_score:
+            if current_doc_score is None or not next_doc_score:
                 continue
 
             gap = current_doc_score - next_doc_score

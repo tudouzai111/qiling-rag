@@ -13,18 +13,16 @@ from knowledge.processor.query_processor.state import QueryGraphState
 class WebMcpSearchNode(BaseNode):
     name = "web_mcp_search_node"
 
-    def process(self, state: QueryGraphState) -> QueryGraphState:
+    def process(self, state: QueryGraphState) -> dict:
         # 参数校验
         rewritten_query, item_names = self._validate_state(state)
 
         # 执行MCP服务
         web_search_results = asyncio.run(self._execute_mcp_server(rewritten_query))
         if not web_search_results:
-            return state
+            return {}
 
-        state['web_search_docs'] = web_search_results
-
-        return state
+        return {'web_search_docs': web_search_results}
 
     def _validate_state(self, state: QueryGraphState) -> tuple[str, list[str]]:
         # 用户的问题(LLM重写后的)
@@ -61,7 +59,7 @@ class WebMcpSearchNode(BaseNode):
             params={
                 "url": self.config.mcp_dashscope_base_url,
                 "headers": {"Authorization": f"Bearer {self.config.aliyun_api_key}"},
-                "timeout": 10,
+                "timeout": 60,
             },
             cache_tools_list=True,  # 缓存MCP服务下的工具列表
             max_retry_attempts=3,

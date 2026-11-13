@@ -1,5 +1,6 @@
 from functools import cache
 
+from knowledge.service.query_service import QueryService
 from knowledge.service.upload_service import UploadService
 
 
@@ -7,3 +8,8 @@ from knowledge.service.upload_service import UploadService
 # @lru_cache  # 缓存注解（淘汰机制：当缓存的数据量达到一定的阈值，根据lru算法将其缓存数据淘汰掉）
 def get_upload_file_service():
     return UploadService()
+
+
+@cache
+def get_query_service():
+    return QueryService()

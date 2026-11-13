@@ -8,7 +8,7 @@ from starlette.staticfiles import StaticFiles
 from knowledge.core.deps import get_upload_file_service
 from knowledge.core.paths import get_front_page_dir
 from knowledge.service.upload_service import UploadService
-from knowledge.shcema.upload_schema import TaskStatusResponse, UploadResponse
+from knowledge.schema.upload_schema import TaskStatusResponse, UploadResponse
 from knowledge.utils.task_util import get_task_info
 
 

@@ -11,7 +11,7 @@ _tasks_done_list: dict[str, list[str]] = defaultdict(list)
 _tasks_duration: dict[str, dict[str, float]] = defaultdict(dict)
 
 # 只要访问不存在的 key，自动帮你初始化为 {} 查询时候用
-# _tasks_result: Dict[str, Dict[str, str]] = defaultdict(dict)
+_tasks_result: dict[str, dict[str, str]] = defaultdict(dict)
 
 _tasks_status: dict[str, str] = {}
 
@@ -84,20 +84,20 @@ def update_task_status(task_id: str, status_name: str) -> None:
     _tasks_status[task_id] = status_name
 
 
-#
-# def set_task_result(task_id: str, key: str, value: str) -> None:
-#     """
-#     存储任务结果字段（如 answer / error）。
-#     """
-#     _tasks_result[task_id][key] = value
+
+def set_task_result(task_id: str, key: str, value: str) -> None:
+    """
+    存储任务结果字段（如 answer / error）。
+    """
+    _tasks_result[task_id][key] = value
 
 
-# def get_task_result(task_id: str, key: str, default: str = "") -> str:
-#     """
-#     获取任务结果字段（如 answer / error）。
-#     """
-#     return _tasks_result.get(task_id, {}).get(key, default)
-#
+def get_task_result(task_id: str, key: str, default: str = "") -> str:
+    """
+    获取任务结果字段（如 answer / error）。
+    """
+    return _tasks_result.get(task_id, {}).get(key, default)
+
 
 
 def add_node_duration(task_id: str, node_name: str, duration: float) -> None:

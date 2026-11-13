@@ -18,6 +18,7 @@ from knowledge.utils.milvus_util import (
     create_hybrid_search_requests,
     execute_hybrid_search_query,
 )
+from knowledge.utils.mongo_history_util import get_recent_messages
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -327,11 +328,22 @@ class ItemNameConfirmedNode(BaseNode):
     def process(self, state: QueryGraphState) -> QueryGraphState:
         # 获取用户的原始问题
         original_query = state.get("original_query", "")
-        # TODO 获取历史对话
-        history_context = ""
+
+        # 获取历史对话
+        session_id = state.get('session_id')
+        # 限制10条消息，5轮对话 TODO MongoDB相关代码还没看
+        history_context = get_recent_messages(session_id=session_id, limit=10)
+        formatted_history = []
+        for history in history_context:
+            role = history.get('role', '')
+            text = history.get('text', '')
+            formatted_context = f"角色：{role}, 内容：{text}"
+            formatted_history.append(formatted_context)
+        formatted_history_str = " ".join(formatted_history)
+
         # 利用LLM进行商品名提取和查询重写
         llm_result: dict[str, Any] = self._extractor.extract_item_name(
-            original_query, history_context
+            original_query, formatted_history_str
         )
         item_names = llm_result.get("item_names", "")
         rewritten_query = llm_result.get("rewritten_query", "")
@@ -342,6 +354,9 @@ class ItemNameConfirmedNode(BaseNode):
 
         # 决策
         self._decide(confirmed, options, state, rewritten_query, item_names)
+
+        # 更新内存state中的history历史上下文
+        state['history'] = formatted_history
 
         return state
 

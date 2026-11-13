@@ -6,6 +6,7 @@ from knowledge.processor.query_processor.base import BaseNode
 from knowledge.processor.query_processor.state import QueryGraphState
 from knowledge.prompts.query_prompt import ANSWER_PROMPT
 from knowledge.utils.client.ai_clients import AIClients
+from knowledge.utils.mongo_history_util import save_chat_message
 from knowledge.utils.sse_util import SSEEvent, push_sse_event
 from knowledge.utils.task_util import set_task_result
 
@@ -32,7 +33,8 @@ class AnswerOutputNode(BaseNode):
             self._generate_answer(prompt, task_id, state)
             is_streamed = is_stream
 
-        # TODO 保存历史对话
+        # 保存历史对话
+        self._save_history(state)
 
         # 关闭sse通道
         if is_stream:
@@ -50,7 +52,8 @@ class AnswerOutputNode(BaseNode):
                     event=SSEEvent.FINAL,
                     data={"answer": state.get("answer")},
                 )
-            
+
+        return state
 
     def _push_exist_answer(self, task_id: str, is_stream: bool, state: QueryGraphState):
         if not is_stream:
@@ -69,12 +72,14 @@ class AnswerOutputNode(BaseNode):
 
         # 构建检索的上下文
         retrieval_context = state.get("reranked_docs", [])
-        formatted_context = self._format_retrieval_context(
+        formatted_context, usage_chars = self._format_retrieval_context(
             retrieval_context, max_context_chars
         )
 
-        # TODO 构建历史上下文
-        formatted_history = ""
+        # 构建历史上下文
+        # 从内存中获取历史上下文
+        chat_history_context = state.get("history") or []
+        formatted_history = self._format_chat_history(chat_history_context, usage_chars)
 
         # 格式化提示词模板
         return ANSWER_PROMPT.format(
@@ -187,3 +192,68 @@ class AnswerOutputNode(BaseNode):
             return "LLM流式调用回答失败"
 
         return accelerate_delta
+
+    def _save_history(self, state: QueryGraphState):
+        """
+        保存历史对话
+        存储到MongoDB的kb001库的chat_message表中
+        """
+        session_id = state.get("session_id")
+        user_query = state.get("original_query")
+        rewritten_query = state.get("rewritten_query")
+        item_names = state.get("item_names") or []
+        try:
+            # 保存用户角色的信息
+            save_chat_message(
+                session_id=session_id,
+                role="user",
+                text=user_query,
+                rewritten_query=rewritten_query,
+                item_names=item_names,
+            )
+            # 保存AI角色的信息
+            save_chat_message(
+                session_id=session_id,
+                role="assistant",
+                text=state.get("answer"),
+                rewritten_query=rewritten_query,
+                item_names=item_names,
+            )
+        except Exception as e:
+            self.logger.error(f"保存历史对话到MongoDB中失败：{e}")
+
+    def _format_chat_history(
+        self, chat_history_context: list[dict[str, Any]], usage_chars: int
+    ):
+        """
+        格式化历史上下文
+
+        Args:
+            chat_history_context: 历史上下文
+            usage_chars: 可用上下文容量
+
+        Returns:
+
+        """
+
+        formatted_lines = []
+        used_chars = 0
+        role_map = {"user": "用户", "assistant": "AI助手"}
+        for msg in chat_history_context:
+            role = msg.get("role", "")
+            text = msg.get("text", "")
+            if not text or role not in role_map:
+                continue
+
+            formatted_line = f"{role_map[role]}: {text}"
+            # 计算分割符长度
+            seperator_usage = 1 if formatted_line else 0
+            # 计算总长度
+            total_usage = seperator_usage + len(formatted_line)
+            if used_chars + total_usage > usage_chars:
+                break
+
+            formatted_lines.append(formatted_line)
+            usage_chars += total_usage
+
+        return '\n'.join(formatted_lines)

@@ -3,17 +3,28 @@
 使用 LangGraph 构建知识库查询工作流。
 """
 
-from langgraph.graph import StateGraph, END
-from langgraph.graph.state import CompiledStateGraph
 from dotenv import load_dotenv
-from knowledge.processor.query_processor.state import QueryGraphState
-from knowledge.processor.query_processor.nodes.item_name_confirmed_node import ItemNameConfirmedNode
-from knowledge.processor.query_processor.nodes.hybrid_vector_search_node import HybridVectorSearchNode
-from knowledge.processor.query_processor.nodes.hyde_vector_search_node import HyDeVectorSearchNode
-from knowledge.processor.query_processor.nodes.web_mcp_search_node import WebMcpSearchNode
-from knowledge.processor.query_processor.nodes.rrf_merge_node import RrfMergeNode
+from langgraph.graph import END, StateGraph
+from langgraph.graph.state import CompiledStateGraph
+
+from knowledge.processor.query_processor.nodes.answer_output_node import (
+    AnswerOutputNode,
+)
+from knowledge.processor.query_processor.nodes.hybrid_vector_search_node import (
+    HybridVectorSearchNode,
+)
+from knowledge.processor.query_processor.nodes.hyde_vector_search_node import (
+    HyDeVectorSearchNode,
+)
+from knowledge.processor.query_processor.nodes.item_name_confirmed_node import (
+    ItemNameConfirmedNode,
+)
 from knowledge.processor.query_processor.nodes.reranker_node import RerankerNode
-from knowledge.processor.query_processor.nodes.answer_output_node import AnswerOutPutNode
+from knowledge.processor.query_processor.nodes.rrf_merge_node import RrfMergeNode
+from knowledge.processor.query_processor.nodes.web_mcp_search_node import (
+    WebMcpSearchNode,
+)
+from knowledge.processor.query_processor.state import QueryGraphState
 
 # 加载环境变量
 load_dotenv()
@@ -30,9 +41,7 @@ def route_after_item_confirm(state: QueryGraphState) -> bool:
     Returns:
         True 表示已有答案需要跳过搜索，False 表示继续搜索流程。
     """
-    if state.get("answer"):
-        return True
-    return False
+    return bool(state.get("answer"))
 
 
 def create_query_graph() -> CompiledStateGraph:
@@ -88,7 +97,7 @@ def create_query_graph() -> CompiledStateGraph:
         "join": lambda x: {},  # 多路搜索汇合（虚节点）
         "rrf_merge_node": RrfMergeNode(),
         "reranker_node": RerankerNode(),
-        "answer_output_node": AnswerOutPutNode(),
+        "answer_output_node": AnswerOutputNode(),
     }
 
     # 3. 添加节点
@@ -141,7 +150,7 @@ if __name__ == "__main__":
     print("-" * 60)
 
     mock_state_1 = {
-        "original_query": "RS-12 数字万用表如何测量直流电压？",
+        "original_query": "我准备使用H3C LA2608室内无线网关和华为擎云 L420x，但是我不会用，你教我吧",
         "session_id": "test_session_main_graph",
         "task_id": "test_task_001",
         "is_stream": False,
@@ -149,19 +158,20 @@ if __name__ == "__main__":
 
     result_1 = query_app.invoke(mock_state_1)
 
-
     print(f"\n  【结果】:")
     print(f"  商品名: {result_1.get('item_names')}")
     print(f"  重写查询: {result_1.get('rewritten_query')}")
     answer_1 = result_1.get("answer", "")
-    print(f"  答案: {answer_1[:200]}..." if len(answer_1) > 200 else f"  答案: {answer_1}")
+    print(
+        f"  答案: {answer_1[:200]}..." if len(answer_1) > 200 else f"  答案: {answer_1}"
+    )
 
     # ---- 测试场景 2：商品名模糊，被拦截 ----
     print("\n\n【场景 2】: 商品名模糊，被拦截返回选项")
     # print("-" * 60)
     #
     # mock_state_2 = {
-    #     "original_query": "万用表怎么测电压？",
+    #     "original_query": "我准备使用H3C LA2608室内无线网关和华为擎云 L420x，但是我不会用，你教我吧",
     #     "session_id": "test_session_main_graph",
     #     "task_id": "test_task_002",
     #     "is_stream": False,

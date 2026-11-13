@@ -11,7 +11,12 @@ class RerankerNode(BaseNode):
 
     @staticmethod
     def _sigmoid(score: float) -> float:
-        """归一化TODO"""
+        """
+        sigmoid 归一化 1 / (1 + e⁻ᶻ)
+        为什么不用 min-max (x - min) / (max - min) ?
+        归一化后只是把分数线性拉伸到 0-1，依赖最小最大值，并没有解决问题
+        Reranker 是交叉编码器，sigmoid 刚好可以把 Reranker 输出 Logit 映射到 0-1，更适合重排序分数归一化
+        """
         return 1.0 / (1.0 + math.exp(-score))
 
     def process(self, state: QueryGraphState) -> QueryGraphState:
@@ -147,7 +152,7 @@ class RerankerNode(BaseNode):
     ) -> list[dict[str, Any]]:
         """
         动态top_k机制截取文档个数：自动决定保留多少篇文档送给 LLM 生成答案，而不是用一个固定的 top_k 一刀切。
-        由于没有对分数做归一化，所以需要判断断崖来选择截取文档数
+        从头开始寻找最大断崖点
 
         Args:
             refine_docs: 精排后的文档
@@ -161,38 +166,21 @@ class RerankerNode(BaseNode):
         lower_bound = min(rerank_min_top_k, upper_bound)
         cutoff_idx = upper_bound
         max_gap = 0
-        for i in range(lower_bound - 1, upper_bound - 1):
+        for i in range(0, upper_bound - 1):
             current_doc_score = refine_docs[i].get('score')
             next_doc_score = refine_docs[i + 1].get('score')
             if not current_doc_score or not next_doc_score:
                 continue
 
-            abs_gap = current_doc_score - next_doc_score
-            need_cutoff = False
-            # 绝对阈值：分数量级适中时，识别明显的断崖，无法解决高分区误截，低分区误截
-            if abs_gap >= self.config.rerank_gap_abs:
-                need_cutoff = True
-            # 相对阈值：判断断崖的严重程度，分子分母都很小会误截TODO
-            elif abs(current_doc_score) > 1.0:
-                rel_gap = abs_gap / (abs(current_doc_score) + 1e-6)
-                if rel_gap >= self.config.rerank_gap_ratio:
-                    need_cutoff = True
-
-            if need_cutoff and abs_gap > max_gap:
-                max_gap = abs_gap
+            gap = current_doc_score - next_doc_score
+            if gap >= 0.15 and gap > max_gap:
+                max_gap = gap
                 cutoff_idx = i + 1
                 self.logger.info(f"位置{cutoff_idx}发生了断崖")
 
+        # 至少保留lower_bound个
+        cutoff_idx = max(cutoff_idx, lower_bound)
         cutoff_docs = refine_docs[:cutoff_idx]
-
-        # 绝对分数底线过滤
-        rerank_min_score = getattr(self.config, 'rerank_min_score', None)
-        if rerank_min_score is not None:
-            filtered_docs = [d for d in cutoff_docs if (d.get("score") or 0) >= rerank_min_score]
-            if len(filtered_docs) < lower_bound:
-                cutoff_docs = refine_docs[:lower_bound]
-            else:
-                cutoff_docs = filtered_docs
 
         return cutoff_docs
 
@@ -241,11 +229,11 @@ if __name__ == "__main__":
     node = RerankerNode()
     result = node.process(mock_state)
 
-    # print("\n【重排序结果】:")
-    # for i, doc in enumerate(result["reranked_docs"], 1):
-    #     score = doc.get("score")
-    #     score_str = f"{score:.4f}" if score is not None else "N/A"
-    #     print(f"[{i}] score={score_str} | {doc['source']:5} | {doc['content'][:50]}...")
-    #
-    # print("-" * 60)
-    # print("测试完成")
+    print("\n【重排序结果】:")
+    for i, doc in enumerate(result["reranked_docs"], 1):
+        score = doc.get("score")
+        score_str = f"{score:.4f}" if score is not None else "N/A"
+        print(f"[{i}] score={score_str} | {doc['source']:5} | {doc['content'][:50]}...")
+
+    print("-" * 60)
+    print("测试完成")

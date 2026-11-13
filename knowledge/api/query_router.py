@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from typing import Union
 
@@ -26,6 +27,28 @@ from knowledge.service.query_service import QueryService
 from knowledge.utils.sse_util import create_sse_queue, sse_generator
 
 
+logger = logging.getLogger(__name__)
+
+
+def prewarm_local_models():
+    """启动时在主线程预热本地模型（BGE-M3 / BGE-Reranker）。
+
+    这两个模型是进程内两次 GB 级内存分配；若推迟到首个请求时才懒加载，
+    遇上系统内存紧张（导入服务驻留 BGE-M3、浏览器占用高等）时，torch 原生层
+    分配失败不走 Python 异常而是直接段错误（SIGSEGV，日志戛然而止、无堆栈）。
+    服务启动时内存最空闲，此时一次性装好，运行期不再发生大块分配。
+    """
+    try:
+        from knowledge.utils.client.ai_clients import AIClients
+
+        AIClients.get_bge_m3_client()
+        AIClients.get_bge_reranker_client()
+        logger.info("本地模型预热完成（BGE-M3 / BGE-Reranker）")
+    except Exception as e:
+        # 预热失败不阻塞启动，退化为原来的懒加载行为
+        logger.error(f"本地模型预热失败（首次查询时会再尝试加载）：{e}")
+
+
 def create_app():
     """
     创建FastAPI实例
@@ -35,7 +58,7 @@ def create_app():
     """
 
     # 1. 实例化
-    app = FastAPI(description="掌柜智库查询的应用", version="v1.0")
+    app = FastAPI(description="器灵查询的应用", version="v1.0")
 
     # 2. 跨域配置
     app.add_middleware(
@@ -50,7 +73,7 @@ def create_app():
         ],  # ← 和 credentials=True 冲突   自定义的头字段 token  content-type:application/json
     )
 
-    # 3. 挂载静态文件（import.html）
+    # 3. 挂载静态文件（qiling.html / forge.html）
     page_dir = get_front_page_dir()
 
     if page_dir and os.path.exists(page_dir):
@@ -59,7 +82,10 @@ def create_app():
     # 4. 注册路由
     register_router(app)
 
-    # 5. 返回fastapi实例
+    # 5. 预热本地模型（主线程、内存最空闲时机）
+    prewarm_local_models()
+
+    # 6. 返回fastapi实例
     return app
 
 

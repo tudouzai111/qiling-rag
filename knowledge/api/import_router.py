@@ -13,7 +13,7 @@ from knowledge.utils.task_util import get_task_info
 
 
 def create_app():
-    app = FastAPI(description="掌柜智库导入的应用", version="v1.0")
+    app = FastAPI(description="器灵导入的应用", version="v1.0")
 
     # 跨域配置
     app.add_middleware(
@@ -24,7 +24,7 @@ def create_app():
         allow_headers=["*"],
     )
 
-    # 挂载静态文件 import.html
+    # 挂载静态文件 forge.html
     page_dir = get_front_page_dir()
     if page_dir and os.path.exists(page_dir):
         # StaticFiles: 对外提供 page_dir 目录下的静态资源，访问入口是 /front/...

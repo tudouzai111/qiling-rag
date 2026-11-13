@@ -580,7 +580,9 @@ class _ImageUploader:
                 # 如果summaries中的img_name对应匹配到的图片
                 img_name_in_md = Path(origin_img_path).name
                 if img_name == img_name_in_md:
-                    return f'![{img_summary}]({remote_urls[img_name]})'
+                    # MinIO对象名可能含空格，写进markdown时编码为%20保证链接合法性
+                    img_url = str(remote_urls[img_name]).replace(' ', '%20')
+                    return f'![{img_summary}]({img_url})'
             return match.group(0)
         return pattern.sub(replacer, md_content)
 

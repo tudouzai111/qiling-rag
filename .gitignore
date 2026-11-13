@@ -73,3 +73,7 @@ dmypy.json
 
 # pyright
 .pyre/
+
+# 项目运行产物
+.acl-report/
+knowledge/temp_data/

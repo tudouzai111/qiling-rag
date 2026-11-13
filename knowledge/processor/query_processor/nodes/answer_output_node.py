@@ -1,3 +1,5 @@
+import re
+import urllib.request
 from typing import Any
 
 from langchain_openai import ChatOpenAI
@@ -10,6 +12,49 @@ from knowledge.utils.mongo_history_util import save_chat_message
 from knowledge.utils.sse_util import SSEEvent, push_sse_event
 from knowledge.utils.task_util import set_task_result
 
+# markdown图链：URL部分允许空格（MinIO对象名含空格，如"H3C LA2608... 用户手册"），捕获到右括号为止
+_MD_IMG_RE = re.compile(r'!\[[^\]\n]*\]\(([^)\n]+)\)', re.IGNORECASE)
+# 裸URL（无空格场景，如联网搜索结果）
+_BARE_IMG_RE = re.compile(r'https?://[^\s\)\]"\']+\.(?:jpg|jpeg|png|gif|webp)', re.IGNORECASE)
+
+
+def _normalize_image_url(raw: str) -> str | None:
+    """规范化图片URL：校验扩展名 + 空格编码为%20（MinIO对象名含空格）"""
+    u = raw.strip()
+    if not re.search(r'\.(?:jpg|jpeg|png|gif|webp)$', u, re.IGNORECASE):
+        return None
+    if ' ' in u:
+        u = u.replace(' ', '%20')
+    return u
+
+
+def _filter_icon_images(urls: list[str], min_bytes: int = 4096, timeout: int = 3) -> list[str]:
+    """过滤疑似图标的极小图片。
+
+    设备手册PDF里混有装饰性小图标（约2KB，如"配置记录"铅笔图标），
+    真实图表通常远大于此。HEAD探测Content-Length，小于阈值丢弃；
+    探测失败时保守保留（宁多勿错）。
+    """
+    kept: list[str] = []
+    for u in urls:
+        try:
+            req = urllib.request.Request(u, method="HEAD")
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                size = int(resp.headers.get("Content-Length") or 0)
+            if size >= min_bytes:
+                kept.append(u)
+        except Exception:
+            kept.append(u)
+    return kept
+
+
+def _is_image_line(line: str) -> bool:
+    """判断整行是否为图片URL（LLM抄写产生的散落行）"""
+    s = line.strip()
+    if not re.search(r'\.(?:jpg|jpeg|png|gif|webp)$', s, re.IGNORECASE):
+        return False
+    return s.startswith('http') or '/' in s
+
 
 class AnswerOutputNode(BaseNode):
     name = "answer_output_node"
@@ -21,9 +66,8 @@ class AnswerOutputNode(BaseNode):
         task_id = state.get("task_id")
         # 判断是否已有答案
         if state.get("answer"):
-            # 直接推送答案
+            # 已有答案（澄清/道歉等拦截路径），直接落任务结果
             self._push_exist_answer(task_id, is_stream, state)
-            is_streamed = False
         else:
             # 组装提示词
             prompt = self._build_prompt(state)
@@ -31,33 +75,59 @@ class AnswerOutputNode(BaseNode):
 
             # 调用LLM
             self._generate_answer(prompt, task_id, state)
-            is_streamed = is_stream
+
+        # 整理答案中的图片：从切片原文收集URL，剔除LLM抄写的散落行，统一追加【图片】区块
+        # 放在保存历史之前，MongoDB里存的也是整理后的文本
+        images = self._polish_answer(state)
+
+        # 非流式：用整理后的答案覆盖任务结果（_generate_answer写入的是整理前的文本）
+        if not is_stream:
+            set_task_result(task_id=task_id, key="answer", value=state.get("answer", ""))
 
         # 保存历史对话
         self._save_history(state)
 
-        # 关闭sse通道
+        # 关闭sse通道（FINAL统一携带整理后的答案与图片列表，前端以服务端答案为准）
         if is_stream:
-            # 已经执行过流式输出，关闭
-            if is_streamed:
-                push_sse_event(
-                    task_id=task_id,
-                    event=SSEEvent.FINAL,
-                    data={},
-                )
-            # 执行流式输出，关闭
-            else:
-                push_sse_event(
-                    task_id=task_id,
-                    event=SSEEvent.FINAL,
-                    data={"answer": state.get("answer")},
-                )
+            push_sse_event(
+                task_id=task_id,
+                event=SSEEvent.FINAL,
+                data={"answer": state.get("answer"), "images": images},
+            )
 
         return state
 
     def _push_exist_answer(self, task_id: str, is_stream: bool, state: QueryGraphState):
         if not is_stream:
             set_task_result(task_id=task_id, key="answer", value=state.get("answer"))
+
+    def _collect_image_urls(self, state: QueryGraphState) -> list[str]:
+        """从检索上下文收集图片URL（markdown图链/裸URL；空格统一编码为%20）"""
+        urls: list[str] = []
+        for doc in state.get("reranked_docs", []):
+            content = doc.get("content", "") or ""
+            for raw in _MD_IMG_RE.findall(content):
+                norm = _normalize_image_url(raw)
+                if norm:
+                    urls.append(norm)
+            for raw in _BARE_IMG_RE.findall(content):
+                norm = _normalize_image_url(raw)
+                if norm:
+                    urls.append(norm)
+        # 去重并保持出现顺序
+        seen: set[str] = set()
+        return [u for u in urls if not (u in seen or seen.add(u))]
+
+    def _polish_answer(self, state: QueryGraphState) -> list[str]:
+        """剔除LLM抄写的散落图片行，统一追加规范【图片】区块；返回图片列表"""
+        images = self._collect_image_urls(state)
+        images = _filter_icon_images(images)
+        if not images:
+            return []
+        answer = state.get("answer") or ""
+        kept = [ln for ln in answer.split("\n") if not _is_image_line(ln)]
+        state["answer"] = "\n".join(kept).rstrip() + "\n【图片】\n" + "\n".join(images)
+        return images
 
     def _build_prompt(self, state: QueryGraphState) -> str:
         """构建提示词"""

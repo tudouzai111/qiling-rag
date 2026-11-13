@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>器灵 · 铸灵台</title>
+<style>
+  :root{
+    --paper:#f6f2ea; --card:#fffdf8; --ink:#22262b; --muted:#8a8378;
+    --line:#ddd3c2; --bronze:#a5551d; --teal:#23606b; --seal:#b4531f;
+    --ok:#3d7a4f; --bad:#a33b2e; --ember:#8c3d14;
+    --mono:"JetBrains Mono","Cascadia Code",Consolas,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    min-height:100vh;color:var(--ink);
+    font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    background-color:var(--paper);
+    background-image:
+      linear-gradient(rgba(34,38,43,.045) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(34,38,43,.045) 1px,transparent 1px);
+    background-size:28px 28px;
+  }
+
+  /* ---------- 顶栏 ---------- */
+  header{
+    display:flex;align-items:center;gap:14px;padding:14px 28px;
+    background:#20242a;color:#e8e2d6;border-bottom:3px solid var(--bronze);
+    position:sticky;top:0;z-index:10;
+  }
+  header .seal{
+    font-family:"Songti SC","SimSun",serif;font-size:17px;color:#f0e9db;
+    border:2px solid var(--seal);padding:2px 9px;transform:rotate(-4deg);letter-spacing:4px;
+  }
+  header .t{font-size:15px;font-weight:600;letter-spacing:2px}
+  header .sub{font-size:11px;color:#9a927f;font-family:var(--mono)}
+  header .stats{margin-left:auto;display:flex;gap:14px;font-family:var(--mono);font-size:11px;color:#9a927f}
+  header .stats b{color:#f0e9db;font-weight:600}
+  header a{color:#9a927f;text-decoration:none;font-size:12px;font-family:var(--mono);border:1px solid #6b6353;padding:5px 12px;transition:.15s}
+  header a:hover{color:var(--seal);border-color:var(--seal)}
+
+  main{max-width:960px;margin:0 auto;padding:26px 24px 60px}
+
+  /* ---------- 熔炉投放区 ---------- */
+  #furnace{
+    position:relative;border:2px dashed var(--bronze);background:rgba(255,253,248,.85);
+    padding:44px 20px;text-align:center;cursor:pointer;transition:.2s;margin-bottom:30px;
+  }
+  #furnace::before,#furnace::after{content:'';position:absolute;width:14px;height:14px;border-color:var(--ink);border-style:solid}
+  #furnace::before{top:-2px;left:-2px;border-width:3px 0 0 3px}
+  #furnace::after{bottom:-2px;right:-2px;border-width:0 3px 3px 0}
+  #furnace.drag{background:#fdf3e3;border-color:var(--seal);transform:scale(1.01)}
+  #furnace .flame{font-size:38px;line-height:1}
+  #furnace h2{font-family:"Songti SC","SimSun",serif;font-size:22px;letter-spacing:5px;margin:10px 0 6px}
+  #furnace p{font-size:12.5px;color:var(--muted);line-height:1.8}
+  #furnace .fmt{display:inline-flex;gap:8px;margin-top:12px}
+  #furnace .fmt span{font-family:var(--mono);font-size:11px;border:1px solid var(--line);background:#fff;padding:2px 10px;color:var(--teal)}
+  #furnace .fmt span.no{color:var(--muted);text-decoration:line-through}
+  #fileInput{display:none}
+
+  /* ---------- 工单卡 ---------- */
+  .order{
+    position:relative;background:var(--card);border:1px solid var(--line);
+    padding:16px 18px;margin-bottom:18px;
+  }
+  .order::before,.order::after{content:'';position:absolute;width:11px;height:11px;border-color:var(--bronze);border-style:solid}
+  .order::before{top:-1px;left:-1px;border-width:2px 0 0 2px}
+  .order::after{bottom:-1px;right:-1px;border-width:0 2px 2px 0}
+  .order .otag{
+    position:absolute;top:-9px;left:14px;background:var(--ember);color:#fff;
+    font-size:10px;padding:1px 8px;letter-spacing:3px;font-family:var(--mono);
+  }
+  .o-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .o-head .fname{font-size:14.5px;font-weight:600;word-break:break-all}
+  .o-head .tid{font-size:10.5px;color:var(--muted);font-family:var(--mono)}
+  .badge{margin-left:auto;font-size:11px;font-family:var(--mono);letter-spacing:2px;padding:2px 10px;border:1px solid;flex:none}
+  .badge.run{color:var(--bronze);border-color:var(--bronze);animation:pulse 1.2s infinite}
+  .badge.ok{color:var(--ok);border-color:var(--ok)}
+  .badge.fail{color:var(--bad);border-color:var(--bad)}
+  @keyframes pulse{50%{opacity:.45}}
+  .elapsed{font-size:10.5px;color:var(--muted);font-family:var(--mono)}
+
+  /* 阶段轨 */
+  .rail{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px;padding:10px;background:#faf6ec;border:1px dashed var(--line)}
+  .rail .st{font-size:11px;font-family:var(--mono);padding:2px 9px;border:1px solid var(--line);background:#fff;position:relative}
+  .rail .st.done{border-color:var(--ok);color:var(--ok)}
+  .rail .st.done i{font-style:normal;font-size:9.5px;color:#7a9a84;margin-left:4px}
+  .rail .st.run{border-color:var(--bronze);color:var(--bronze);animation:pulse 1.2s infinite}
+  .rail .st.run::after{content:' …'}
+  .rail .st.skip{opacity:.35}
+  .rail .arrow{color:#c9bfa8;font-size:10px;font-family:var(--mono)}
+  .o-fail-note{font-size:12px;color:var(--bad);margin-top:8px}
+
+  /* 耗时谱 */
+  .spec{margin-top:6px}
+  .spec .cap{font-size:11px;color:var(--teal);font-family:var(--mono);letter-spacing:1px;margin-bottom:6px}
+  .spec .row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .spec .row .n{width:110px;flex:none;font-size:11px;color:var(--ink);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .spec .row .bar{height:10px;background:linear-gradient(90deg,var(--bronze),var(--seal));flex:none}
+  .spec .row .v{font-size:10px;color:var(--muted);font-family:var(--mono)}
+
+  .empty{ text-align:center;color:var(--muted);font-size:13px;padding:30px 0;font-family:var(--mono);letter-spacing:1px }
+
+  #toast{
+    position:fixed;top:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:#f0e9db;
+    padding:9px 20px;font-size:13px;display:none;z-index:100;border-left:3px solid var(--seal);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="seal">器灵</span>
+  <span class="t">铸灵台 · 手册铸造工坊</span>
+  <span class="sub">QILING / FORGE WORKS</span>
+  <span class="stats">在铸 <b id="stRun">0</b> · 已成型 <b id="stOk">0</b> · 失败 <b id="stFail">0</b></span>
+  <a id="goQiling" href="#">→ 前往问灵台（开始问答）</a>
+</header>
+
+<main>
+  <div id="furnace">
+    <div class="flame">🔥</div>
+    <h2>投 炉 铸 灵</h2>
+    <p>将设备手册拖入熔炉，或点击选择文件<br>铸成之后，即可在问灵台向器灵提问</p>
+    <div class="fmt"><span>.pdf</span><span>.md</span><span class="no">.docx</span><span class="no">.txt</span></div>
+    <input type="file" id="fileInput" accept=".pdf,.md" multiple>
+  </div>
+
+  <div id="orders"></div>
+  <div class="empty" id="emptyHint">— 暂无工单 · 等待投炉 —</div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+/* ================= 工具 ================= */
+const $ = s => document.querySelector(s);
+const furnaceEl=$('#furnace'), ordersEl=$('#orders');
+function toast(msg){const t=$('#toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2600);}
+function sibling(path){
+  const otherPort = location.port==='8000' ? '8001' : '8000';
+  return location.protocol+'//'+location.hostname+':'+otherPort+path;
+}
+$('#goQiling').href = sibling('/front/qiling.html');
+
+/* 导入流程的固定阶段（与后端 task_util 中文名一致） */
+const STAGES = ["上传文件","检查文件","PDF转Markdown","Markdown图片处理","文档切分","主体名称识别","向量生成","导入向量数据库"];
+
+/* ================= 工单台账（持久化） ================= */
+let orders = JSON.parse(localStorage.getItem('qiling_forge_v1')||'[]');
+function saveOrders(){localStorage.setItem('qiling_forge_v1',JSON.stringify(orders));}
+
+function fmtSec(s){return (s==null?'—':(+s).toFixed(1)+'s');}
+function fmtElapsed(ms){return (ms/1000).toFixed(1)+'s';}
+
+/* ================= 投炉（上传） ================= */
+furnaceEl.onclick=()=>$('#fileInput').click();
+furnaceEl.ondragover=e=>{e.preventDefault();furnaceEl.classList.add('drag');};
+furnaceEl.ondragleave=()=>furnaceEl.classList.remove('drag');
+furnaceEl.ondrop=e=>{
+  e.preventDefault();furnaceEl.classList.remove('drag');
+  handleFiles(e.dataTransfer.files);
+};
+$('#fileInput').onchange=e=>{handleFiles(e.target.files);e.target.value='';};
+
+function handleFiles(fileList){
+  const files=[...fileList];
+  if(!files.length)return;
+  const bad=files.filter(f=>!/\.(pdf|md)$/i.test(f.name));
+  const good=files.filter(f=>/\.(pdf|md)$/i.test(f.name));
+  if(bad.length)toast('已拒收 '+bad.length+' 个文件：仅支持 .pdf / .md');
+  good.forEach(f=>cast(f));
+}
+
+async function cast(file){
+  const order={
+    key:'w'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+    name:file.name, taskId:'', status:'processing',
+    done:[], running:[], durations:{}, startTs:Date.now(), elapsed:null, errNet:0
+  };
+  orders.unshift(order);saveOrders();renderAll();
+  const fd=new FormData();fd.append('file',file);
+  try{
+    const res=await fetch('/upload',{method:'POST',body:fd});
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const data=await res.json();
+    order.taskId=data.task_id;saveOrders();renderAll();
+    startPoll(order);
+  }catch(err){
+    order.status='failed';order.error='投炉失败：'+err.message;
+    saveOrders();renderAll();
+  }
+}
+
+/* ================= 轮询状态 ================= */
+function startPoll(order){
+  stopPoll(order);
+  order._timer=setInterval(()=>pollOnce(order),1500);
+  pollOnce(order);
+}
+function stopPoll(order){if(order._timer){clearInterval(order._timer);order._timer=null;}}
+
+async function pollOnce(order){
+  if(!order.taskId)return;
+  try{
+    const res=await fetch('/status/'+order.taskId);
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const d=await res.json();
+    order.errNet=0;
+    order.status=d.status||order.status;
+    order.done=d.done_list||[];order.running=d.running_list||[];
+    order.durations=d.durations||{};
+    if(order.status==='completed'||order.status==='failed'){
+      order.elapsed=Object.values(order.durations).reduce((a,b)=>a+(+b||0),0)*1000;
+      stopPoll(order);
+    }
+    saveOrders();renderAll();
+  }catch(err){
+    order.errNet=(order.errNet||0)+1;
+    if(order.errNet>=5){order.status='failed';order.error='状态查询连续失败（服务可能已停止）';stopPoll(order);}
+    saveOrders();renderAll();
+  }
+}
+
+/* ================= 渲染 ================= */
+function renderAll(){
+  /* 台账 */
+  if(!orders.length){ordersEl.innerHTML='';$('#emptyHint').style.display='';updateStats();return;}
+  $('#emptyHint').style.display='none';
+  /* 简单 diff：key 相同则原位更新 */
+  const frag=document.createDocumentFragment();
+  orders.forEach(o=>{frag.appendChild(renderOrder(o));});
+  ordersEl.innerHTML='';ordersEl.appendChild(frag);
+  updateStats();
+}
+function updateStats(){
+  $('#stRun').textContent=orders.filter(o=>o.status==='processing').length;
+  $('#stOk').textContent=orders.filter(o=>o.status==='completed').length;
+  $('#stFail').textContent=orders.filter(o=>o.status==='failed').length;
+}
+
+function renderOrder(o){
+  const card=document.createElement('div');card.className='order';
+  card.innerHTML=`<span class="otag">工单</span>`;
+
+  /* 头部 */
+  const head=document.createElement('div');head.className='o-head';
+  const badgeCls={processing:'run',completed:'ok',failed:'fail'}[o.status]||'run';
+  const badgeTxt={processing:'铸 造 中',completed:'已 成 型',failed:'锻 造 失 败'}[o.status]||o.status;
+  const live = o.status==='processing' ? `<span class="elapsed">⏱ ${fmtElapsed(Date.now()-o.startTs)}</span>` : '';
+  head.innerHTML=`
+    <span class="fname">${escapeHtml(o.name)}</span>
+    <span class="tid">${o.taskId?('task '+o.taskId):'（尚未获得 task_id）'}</span>
+    ${live}
+    <span class="badge ${badgeCls}">${badgeTxt}</span>`;
+  card.appendChild(head);
+
+  /* 阶段轨 */
+  const rail=document.createElement('div');rail.className='rail';
+  const doneSet=new Set(o.done), runSet=new Set(o.running);
+  const lastDoneIdx=STAGES.reduce((acc,s,i)=>doneSet.has(s)?i:acc,-1);
+  STAGES.forEach((s,i)=>{
+    const st=document.createElement('span');
+    if(doneSet.has(s)){
+      st.className='st done';
+      st.innerHTML=escapeHtml(s)+(o.durations[s]!=null?`<i>${fmtSec(o.durations[s])}</i>`:'');
+    }else if(runSet.has(s)){
+      st.className='st run';st.textContent=s;
+    }else if(lastDoneIdx>i){
+      st.className='st skip';st.textContent=s+' –';
+    }else{
+      st.className='st';st.textContent=s;
+    }
+    rail.appendChild(st);
+    if(i<STAGES.length-1){const a=document.createElement('span');a.className='arrow';a.textContent='▸';rail.appendChild(a);}
+  });
+  card.appendChild(rail);
+
+  /* 失败说明 */
+  if(o.status==='failed'&&o.error){
+    const n=document.createElement('div');n.className='o-fail-note';n.textContent='✕ '+o.error;
+    card.appendChild(n);
+  }
+
+  /* 耗时谱 */
+  const entries=Object.entries(o.durations||{});
+  if(entries.length){
+    const spec=document.createElement('div');spec.className='spec';
+    const max=Math.max(...entries.map(([,v])=>+v||0),0.01);
+    spec.innerHTML='<div class="cap">◤ 耗时谱（各阶段秒数）</div>';
+    entries.sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
+      const row=document.createElement('div');row.className='row';
+      row.innerHTML=`<span class="n" title="${escapeHtml(k)}">${escapeHtml(k)}</span>
+        <span class="bar" style="width:${Math.max(3,Math.round(+v/max*380))}px"></span>
+        <span class="v">${fmtSec(v)}</span>`;
+      spec.appendChild(row);
+    });
+    card.appendChild(spec);
+  }
+  return card;
+}
+
+function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+/* 处理中的工单：每秒刷新计时显示 */
+setInterval(renderElapsedOnly,1000);
+function renderElapsedOnly(){
+  document.querySelectorAll('.order').forEach((c,idx)=>{
+    const o=orders[idx];if(!o||o.status!=='processing')return;
+    const e=c.querySelector('.elapsed');
+    if(e)e.textContent='⏱ '+fmtElapsed(Date.now()-o.startTs);
+  });
+}
+
+/* ================= 启动 ================= */
+renderAll();
+/* 刷新后：processing 的工单重新开始轮询（可能早已结束，一次查询即落定） */
+orders.forEach(o=>{if(o.status==='processing'&&o.taskId)startPoll(o);});
+</script>
+</body>
+</html>

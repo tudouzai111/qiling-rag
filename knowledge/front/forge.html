@@ -206,6 +206,7 @@ async function pollOnce(order){
     const res=await fetch('/status/'+order.taskId);
     if(!res.ok)throw new Error('HTTP '+res.status);
     const d=await res.json();
+    if(!d.status)throw new Error('任务状态为空（服务可能已重启）');
     order.errNet=0;
     order.status=d.status||order.status;
     order.done=d.done_list||[];order.running=d.running_list||[];

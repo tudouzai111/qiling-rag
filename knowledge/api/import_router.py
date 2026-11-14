@@ -1,7 +1,7 @@
 import os.path
 
 import uvicorn
-from fastapi import BackgroundTasks, Depends, FastAPI, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, UploadFile
 from starlette.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
 
@@ -61,6 +61,13 @@ def register_router(app: FastAPI):
         """查询上传任务的状态，1.5秒轮询一次"""
 
         task_info = get_task_info(task_id)
+
+        # 任务不存在（服务重启后内存注册表清空、或传错ID）时显式返回404：
+        # 否则返回空status的200，前端会兜底沿用旧状态，工单永远停留在"铸造中"
+        if not task_info["status"]:
+            raise HTTPException(
+                status_code=404, detail=f"任务 {task_id} 不存在（服务可能已重启，请重新导入）"
+            )
 
         return TaskStatusResponse(**task_info)
 

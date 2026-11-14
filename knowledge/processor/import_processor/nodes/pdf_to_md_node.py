@@ -1,5 +1,6 @@
 import json
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -162,12 +163,30 @@ class PdfToMdNode(BaseNode):
             bufsize=1  # 实时输出，按行输出
         )
 
-        # 实时打印日志
-        for line in proc.stdout:
-            self.logger.info(f'MinerU解析产生的日志：{line}')
+        # 实时打印日志（独立线程：MinerU 可能长时间无输出甚至挂起，
+        # 主线程用带超时的 wait() 兜底，避免整个导入图无限卡死在"铸造中"）
+        def _drain_stdout():
+            try:
+                for line in proc.stdout:
+                    self.logger.info(f'MinerU解析产生的日志：{line}')
+            except ValueError:
+                pass  # 进程结束后管道被关闭
 
-        # 主线程等待子进程执行完成
-        processed_result = proc.wait()
+        reader = threading.Thread(target=_drain_stdout, daemon=True)
+        reader.start()
+
+        # 主线程带超时等待子进程执行完成（大手册CPU解析可能较慢，
+        # 但超过30分钟视为异常，强制终止，绝不无限等待）
+        timeout_seconds = 1800
+        try:
+            processed_result = proc.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            self.logger.error(f'MinerU解析超过{timeout_seconds}秒仍未结束，强制终止子进程树')
+            proc.kill()
+            processed_result = proc.wait(timeout=30)
+            if not processed_result:  # None 或 0 都按失败处理（超时即失败）
+                processed_result = 1
+        reader.join(timeout=5)
         end_time = time.time()
 
         # 无论成功失败，清理本次可能遗留的孤儿服务进程
